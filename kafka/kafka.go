@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/alifpay/cache"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
@@ -63,12 +64,12 @@ func Close() {
 }
 
 //Produce send message to kafka
-func Produce(topic string, prm interface{}) {
+func Produce(topic string, prm interface{}) error {
 
 	valByte, err := json.Marshal(prm)
 	if err != nil {
 		log.Println("BalanceResp json.Marshal", err)
-		return
+		return err
 	}
 
 	dChan := make(chan kafka.Event)
@@ -83,9 +84,11 @@ func Produce(topic string, prm interface{}) {
 	m := e.(*kafka.Message)
 	if m.TopicPartition.Error != nil {
 		log.Printf("Delivery failed: %v\n", m.TopicPartition.Error)
+		err = m.TopicPartition.Error
 	}
 
 	close(dChan)
+	return err
 }
 
 //Consume get message from kafka
@@ -108,7 +111,13 @@ func Consume(ctx context.Context, wg *sync.WaitGroup) {
 				cons.Unassign()
 			case *kafka.Message:
 				//send message to handler ??
+				obj := StrObj{}
+				if err := json.Unmarshal(e.Value, &obj); err != nil {
+					log.Println("kafka.Message json.Unmarshal", err, string(e.Value))
+				}
+				cache.Set(obj.ID, []byte("info from Kafka consumer"), 40)
 				fmt.Println(string(e.Value))
+				//cache.Set(e.Value)
 			case kafka.PartitionEOF:
 				log.Println("Reached: ", e)
 			case kafka.Error:
@@ -116,4 +125,9 @@ func Consume(ctx context.Context, wg *sync.WaitGroup) {
 			}
 		}
 	}
+}
+
+type StrObj struct {
+	ID  string
+	Val string
 }
